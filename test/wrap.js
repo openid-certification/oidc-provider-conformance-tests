@@ -3,7 +3,7 @@ const phantom = require('phantom');
 let instance;
 
 before(async function () {
-  instance = await phantom.create();
+  instance = await phantom.create(['--ignore-ssl-errors=yes']);
   global.page = await instance.createPage();
 });
 
