@@ -150,7 +150,7 @@ async function runSuite(profile) {
   const args = [mocha];
   args.push('--async-only');
   args.push('--timeout');
-  args.push('60000');
+  args.push('70000');
 
   args.push('test/wrap.js');
 
