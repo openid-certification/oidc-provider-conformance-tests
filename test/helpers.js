@@ -2,6 +2,8 @@ const path = require('path');
 const url = require('url');
 const _ = require('lodash');
 const got = require('got');
+const fs = require('fs');
+const assert = require('assert');
 
 const {
   ISSUER = 'https://guarded-cliffs-8635.herokuapp.com',
@@ -15,48 +17,49 @@ function testUrl(pathname, { protocol = TEST_PROTOCOL, port = TEST_PORT, hostnam
   return url.format({ protocol, port, hostname, pathname });
 }
 
-async function clearCookies(resource = `${ISSUER}/.well-known/openid-configuration`) {
-  await page.open(resource);
-  await page.clearCookies();
-}
-
 async function passed(test) {
+  const { result: { value: pathname } } = await Runtime.evaluate({
+    expression: 'window.location.pathname',
+  });
+
+  assert.equal(pathname, '/display', 'Expected to be on a result screen');
+
   const selector = `a[href="${testUrl(test)}"] > img`;
-  const fn = Function(`
-    const img = document.querySelector('${selector}');
-    if (img) {
-      return img.alt;
-    } else {
-      return "no status found";
-    }
-    `);
-  const alt = await page.evaluate(fn);
-  if (alt !== 'Green') throw new Error(`expected status to be Green, but got "${alt}"`);
+  const { result: { value: status } } = await Runtime.evaluate({
+    expression: `document.querySelector('${selector}').alt`,
+  });
+
+  assert.equal(status, 'Green', `Expected status to be Green, got ${status}`);
 }
 
 function navigation() {
-  return new Promise((resolve) => {
-    page.on('onLoadFinished', async function () {
-      if ((await page.property('content')).includes('document.forms[0].submit()')) {
-        return; // wait for the next onLoadFinished on resubmittions
-      }
-      await page.off('onLoadFinished');
-      resolve();
-    });
+  return new Promise(async (resolve) => {
+    await Page.frameStoppedLoading();
+
+    function getBody() {
+      return Runtime.evaluate({
+        expression: 'document.body.outerHTML',
+      }).then(({ result: { value } }) => value.includes('document.forms[0].submit()'));
+    }
+
+    while (await getBody()) {
+      await Page.frameStoppedLoading();
+    }
+
+    resolve();
   });
 }
 
+async function navigate(destination) {
+  await Page.navigate({ url: destination });
+  await navigation();
+}
+
 async function proceed() {
-  const nav = navigation();
-  const clicked = await page.evaluate(function () {
-    const link = document.querySelector('a[href*=continue]');
-    if (link) {
-      return link.click();
-    }
-    return false;
+  const { result: { value: href } } = await Runtime.evaluate({
+    expression: 'document.links[0].href',
   });
-  if (clicked === false) throw new Error('expected continue link to be present');
-  await nav;
+  await navigate(href);
 }
 
 async function login(loginValue = 'foo', passwordValue = 'bar') {
@@ -66,31 +69,52 @@ async function login(loginValue = 'foo', passwordValue = 'bar') {
     if (document.forms[0].password) document.forms[0].password.value = '${passwordValue}';
     document.forms[0].submit();
   `);
-  const nav = navigation();
-  const clicked = await page.evaluate(fn);
-  if (clicked === false) throw new Error('expected a form to be present');
-  await nav;
+
+  await Runtime.evaluate({ expression: `(${fn.toString()})();` });
+  await navigation();
+}
+
+async function clearCookies(resource = `${ISSUER}/.well-known/openid-configuration`) {
+  await navigate(resource);
+  const { cookies } = await Network.getCookies();
+
+  for (const cookie of cookies) {
+    await Network.deleteCookie({
+      cookieName: cookie.name,
+      url: resource,
+    });
+  }
 }
 
 async function nointeraction() {
   const test = this.test.title;
-  const nav = navigation();
-  await page.open(testUrl(test));
-  await nav;
+  await navigate(testUrl(test));
   await passed(test);
+}
+
+async function render(test) {
+  fs.writeFileSync(`${test}.png`, Buffer.from((await Page.captureScreenshot()).data, 'base64'));
 }
 
 async function captureError() {
   const test = this.test.title;
-  await page.open(testUrl(test));
+  await navigate(testUrl(test));
   await proceed();
-  await page.render(`${test}.png`);
+
+  const { result: { value: body } } = await Runtime.evaluate({
+    expression: 'document.body.outerHTML',
+  });
+
+  await render(test);
+  assert(body.includes('oops! something went wrong'), 'expected body to be an error screen');
+  console.log('received expected error screen with',
+    JSON.parse(body.substring(body.match(/<pre>/).index + 5, body.match(/<\/pre>/).index)));
 }
 
 async function regular() {
   const test = this.test.title;
-  await page.open(testUrl(test));
 
+  await navigate(testUrl(test));
   await login();
   await passed(test);
 }
@@ -98,11 +122,16 @@ async function regular() {
 async function clearCaptureView() {
   const test = this.test.title;
   await clearCookies();
-  await page.open(testUrl(test));
+  await navigate(testUrl(test));
   await proceed();
-  await page.render(`${test}.png`);
-  await login();
 
+  await render(test);
+  const { result: { value: body } } = await Runtime.evaluate({
+    expression: 'document.body.outerHTML',
+  });
+  console.log('rendered view h1 says:', body.match(/<h1>(.+)<\/h1>/)[1]);
+
+  await login();
   await passed(test);
 }
 
@@ -129,7 +158,6 @@ async function configure(type) {
   };
 
   await got.post(testUrl(`/run/${encodeURIComponent(ISSUER)}/${TAG}`, {
-    protocol: 'http',
     port: 60000,
   }), { body });
 }
@@ -168,6 +196,7 @@ async function runSuite(profile) {
 }
 
 module.exports = {
+  navigate,
   captureError,
   clearCaptureView,
   clearCookies,
@@ -179,4 +208,5 @@ module.exports = {
   regular,
   runSuite,
   testUrl,
+  render,
 };
