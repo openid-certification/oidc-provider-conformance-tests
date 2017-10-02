@@ -150,13 +150,13 @@ async function configure(profile) {
         }
       }
     }).join(' '),
-    'tool:webfinger_email': `acct:foobar@${url.parse(ISSUER).hostname}`,
+    'tool:webfinger_email': `acct:foobar@${url.parse(ISSUER).hostname}:${url.parse(ISSUER).port}`,
     'tool:webfinger_url': `${ISSUER}/foobar`,
     'tool:acr_values': 'session urn:mace:incommon:iap:bronze',
     'tool:claims_locales': '',
     'tool:enc': 'True',
     'tool:extra': 'True',
-    'tool:insecure': 'False',
+    'tool:insecure': 'True',
     'tool:login_hint': 'bob@example.com',
     'tool:none': 'True',
     'tool:profile': '',
