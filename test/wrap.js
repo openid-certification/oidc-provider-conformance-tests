@@ -5,8 +5,9 @@ let browser;
 
 before(async function () {
   browser = await puppeteer.launch('CI' in process.env ? {
+    ignoreHTTPSErrors: true,
     args: ['--no-sandbox'],
-  } : undefined);
+  } : {ignoreHTTPSErrors: true});
   global.tab = await browser.newPage();
 });
 
