@@ -114,6 +114,18 @@ async function captureLogoutError() {
   assert(body.includes('oops! something went wrong'), 'expected body to be an error screen');
 }
 
+async function captureLogoutError() {
+  const test = this.test.title;
+  await navigate(testUrl(test));
+  await login();
+  await proceed();
+
+  const body = await tab.evaluate(() => document.body.outerHTML);
+
+  await render(test);
+  assert(body.includes('oops! something went wrong'), 'expected body to be an error screen');
+}
+
 async function regular() {
   const test = this.test.title;
 
